@@ -42,4 +42,5 @@ class RealMojiV1(RealMoji):
         self.emoji = data_dict.get("emoji", None)
         self.type = data_dict.get("type", None)
         self.photo = Picture(data_dict.get("media"))
+        self.url_id = self.photo.url.split("/")[-1][:-5]
         self.date = pendulum.parse(data_dict.get("postedAt", None))

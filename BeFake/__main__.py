@@ -49,11 +49,17 @@ def cli(ctx):
 @cli.command(help="Login to BeReal")
 @click.argument("phone_number", type=str)
 @click.argument("deviceid", type=str, default=''.join(random.choices(string.ascii_lowercase + string.digits, k=16)))
-@click.option("backend", "--backend", "-b", type=click.Choice(["vonage", "firebase", "recaptcha"]), default="vonage",
+@click.option("backend", "--backend", "-b", type=click.Choice(["vonage", "firebase", "recaptcha", "cloud"]), default="cloud",
               show_default=True)
 def login(phone_number, deviceid, backend):
     bf = BeFake(deviceId=deviceid)
-    if backend == "vonage":
+    if backend == "cloud":
+        bf.send_otp_cloud(phone_number)
+        otp = input("Enter otp: ")
+        bf.verify_otp_cloud(otp)
+        bf.save()
+        click.echo("Cloud login successful.")
+    elif backend == "vonage":
         bf.send_otp_vonage(phone_number)
         otp = input("Enter otp: ")
         bf.verify_otp_vonage(otp)
@@ -102,12 +108,12 @@ def refresh(bf):
     # In that scenario, a double refresh will be done.
     # Since this command is mostly used for debugging, it wouldn't be practical to add extra code to prevent this
     # behaviour.
-    bf.refresh_tokens()
+    bf.firebase_refresh_tokens()
     click.echo(bf.token, nl=False)
 
 
 @cli.command(help="Download a feed")
-@click.argument("feed_id", type=click.Choice(["friends", "friends-v1", "friends-of-friends", "discovery", "memories"]))
+@click.argument("feed_id", type=click.Choice(["friends", "friends-v1", "friends-of-friends", "discovery", "memories", "memories-v1"]))
 @click.option("--save-location", help="The paths where the posts should be downloaded")
 @click.option("--realmoji-location", help="The paths where the (non-instant) realmojis should be downloaded")
 @click.option("--instant-realmoji-location", help="The paths where the instant realmojis should be downloaded")
@@ -125,21 +131,30 @@ def feed(bf, feed_id, save_location, realmoji_location, instant_realmoji_locatio
         feed = bf.get_memories_feed()
     elif feed_id == "friends-v1":
         feed = bf.get_friendsv1_feed()
+    elif feed_id == "memories-v1":
+        feed = bf.get_memoriesv1_feed()
 
     # Add fallback location for save_location and realmoji_location parameters if they were not specified by the user.
     # These strings will get formatted later, that's why the "f" is missing before the strings.
     if save_location is None:
         if feed_id == "memories":
             save_location = f"{DATA_DIR}" + "/feeds/memories/{date}"
+        elif feed_id == "memories-v1":
+            save_location = f"{DATA_DIR}" + "/feeds/memories-v1/{date}/{post_id}"
         elif feed_id == "friends-v1":
             save_location = f"{DATA_DIR}" + "/feeds/{feed_id}/{user}/{notification_id}/{post_id}"
         else:
             save_location = f"{DATA_DIR}" + "/feeds/{feed_id}/{user}/{post_id}"
 
     if realmoji_location is None:
-        realmoji_location = \
-            f"{DATA_DIR}" + \
-            "/feeds/{feed_id}/{user}/{notification_id}/{post_id}/reactions/{type}/{user}"
+        if feed_id == "friends-v1":
+            realmoji_location = \
+                f"{DATA_DIR}" + \
+                "/feeds/{feed_id}/{post_user}/{notification_id}/{post_id}/reactions/{type}/{user}"
+        else:
+            realmoji_location = \
+                f"{DATA_DIR}" + \
+                "/feeds/{feed_id}/{post_user}/{post_id}/reactions/{type}/{user}"
 
     instant_realmoji_location = realmoji_location if instant_realmoji_location is None else instant_realmoji_location
 
@@ -157,21 +172,38 @@ def feed(bf, feed_id, save_location, realmoji_location, instant_realmoji_locatio
                 # FIXME: bts_video successfully instantiates when there is none, but download() would fail
                 item.bts_video.download(f"{_save_location}/bts")
 
+        elif feed_id == "memories-v1":
+            click.echo("saving memory {}".format(item.memory_day).ljust(50, " ") + item.id)
+            _save_location = save_location.format(date=item.memory_day, post_id=item.id)
+            os.makedirs(f"{_save_location}", exist_ok=True)
+
+            with open(f"{_save_location}/info.json", "w+") as f:
+                f.write(json.dumps(item.data_dict, indent=4))
+            item.primary_photo.download(f"{_save_location}/primary")
+            item.secondary_photo.download(f"{_save_location}/secondary")
+
+        elif feed_id == "memories-v1":
+            click.echo("saving memory {}".format(item.memory_day).ljust(50, " ") + item.id)
+            _save_location = save_location.format(date=item.memory_day, post_id=item.id)
+            os.makedirs(f"{_save_location}", exist_ok=True)
+
+            with open(f"{_save_location}/info.json", "w+") as f:
+                f.write(json.dumps(item.data_dict, indent=4))
+            item.primary_photo.download(f"{_save_location}/primary")
+            item.secondary_photo.download(f"{_save_location}/secondary")
+
         elif feed_id == "friends-v1":
             for post in item.posts:
                 logging.info(f"saving posts by {item.user.username}".ljust(50, " ") + post.id)
                 post_date = post.creation_date.format(date_format)
                 _save_location = save_location.format(user=item.user.username, date=post_date, feed_id=feed_id,
                                                   post_id=post.id, notification_id=item.notification_id)
-                os.makedirs(f"{_save_location}", exist_ok=True)
+                os.makedirs(f"{os.path.dirname(_save_location)}", exist_ok=True)
 
-                with open(f"{_save_location}/info.json", "w+") as f:
+                with open(f"{_save_location}info.json", "w+") as f:
                     f.write(json.dumps(post.data_dict, indent=4))
-                post.primary_photo.download(f"{_save_location}/primary")
-                post.secondary_photo.download(f"{_save_location}/secondary")
-                if post.bts_video.exists():
-                    # FIXME: bts_video successfully instantiates when there is none, but download() would fail
-                    post.bts_video.download(f"{_save_location}/bts")
+                post.primary_photo.download(f"{_save_location}primary")
+                post.secondary_photo.download(f"{_save_location}secondary")
                 for emoji in post.realmojis:
                     # Differenciate between instant and non-instant realomji locations
                     _realmoji_location = instant_realmoji_location if emoji.type == 'instant' else realmoji_location
@@ -180,13 +212,14 @@ def feed(bf, feed_id, save_location, realmoji_location, instant_realmoji_locatio
                     _realmoji_location = _realmoji_location.format(user=emoji.username, type=emoji.type,
                                                                    feed_id=feed_id, notification_id=item.notification_id,
                                                                    post_date=post_date, post_user=item.user.username,
-                                                                   post_id=post.id, date='{date}')
+                                                                   post_id=post.id, emoji_id=emoji.id,
+                                                                   emoji_url_id=emoji.url_id, date='{date}')
 
                     # Getting the realmoji creation date sends an extra request
                     # Only use that if it's actually needed
                     if '{date}' in _realmoji_location:
                         _realmoji_location = _realmoji_location.format(
-                            date=emoji.get_creation_date().format(date_format))
+                            date=emoji.date.format(date_format))
 
                     os.makedirs(os.path.dirname(_realmoji_location), exist_ok=True)
                     emoji.photo.download(f"{_realmoji_location}")
