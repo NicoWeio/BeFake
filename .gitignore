@@ -1,10 +1,10 @@
-.venv
-.idea/
 __pycache__
-token.txt
-feeds
-
+.idea/
+.venv/
 data/
+feeds/
+session.json
+token.txt
 
 .DS_Store
 /BeFake.egg-info/
