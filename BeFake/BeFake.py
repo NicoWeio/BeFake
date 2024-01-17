@@ -22,6 +22,7 @@ try:
 except ImportError:
     import click
 
+
 def _get_config_dir() -> str:
     """Source: Instaloader (MIT License)
     https://github.com/instaloader/instaloader/blob/3cc29a4/instaloader/instaloader.py#L30-L39"""
@@ -53,24 +54,36 @@ class BeFake:
             refresh_token: Optional[str] = None,
             proxies=None,
             disable_ssl=False,
-            deviceId=None,
+            deviceId=None,  # NOTE: defaults to a random string in the CLI
             api_url="https://mobile.bereal.com/api",
-            google_api_key="AIzaSyDsHincWT9bwXimnY0ZKnXs7mf9C26WU44",
+            google_api_key="AIzaSyDwjfEeparokD7sXPVQli9NsTuhT6fJ6iA",
     ) -> None:
         self.client = httpx.Client(
             proxies=proxies,
             verify=not disable_ssl,
             headers={
-                "Accept-Encoding": "gzip",
-                "bereal-app-language": "en",
-                "bereal-app-version": "1.13.1",
-                "bereal-app-version-code": "1590",
-                "bereal-device-language": "en",
-                "bereal-os-version": "13",
-                "bereal-platform": "android",
-                "bereal-timezone": "Europe/London", #UTC Timezone
+                # █ bereal-* headers
+                # "bereal-app-language": "en",
+                # "bereal-app-version": "1.13.1",
+                "bereal-app-version-code": "14549",  # was 1590
+                "bereal-device-id": 'berealdeviceid',  # FIXME: taken from @rvaidun; should self.deviceId be used instead?
+                # "bereal-device-language": "en",
+                # "bereal-os-version": "13",
+                # "bereal-platform": "android",
+                "bereal-signature": "berealsignature",
+                "bereal-timezone": "Europe/London",  # UTC Timezone
+                # █ other headers
+                "accept": "*/*",
+                # "Accept-Encoding": "gzip",
+                "accept-language": "en",
                 "Connection": "Keep-Alive",
-                "User-Agent": "okhttp/4.11.0",
+                # "User-Agent": "okhttp/4.11.0",
+                "user-agent": "FirebaseAuth.iOS/8.15.0 AlexisBarreyat.BeReal/0.22.4 iPhone/14.7.1 hw/iPhone9_1",
+                "x-client-version": "iOS/FirebaseSDK/8.15.0/FirebaseCore-iOS",
+                "x-firebase-client": "apple-platform/ios apple-sdk/19F64 appstore/true deploy/cocoapods device/iPhone9,1 fire-abt/8.15.0 fire-analytics/8.15.0 fire-auth/8.15.0 fire-db/8.15.0 fire-dl/8.15.0 fire-fcm/8.15.0 fire-fiam/8.15.0 fire-fst/8.15.0 fire-fun/8.15.0 fire-install/8.15.0 fire-ios/8.15.0 fire-perf/8.15.0 fire-rc/8.15.0 fire-str/8.15.0 firebase-crashlytics/8.15.0 os-version/14.7.1 xcode/13F100",
+                # "x-firebase-client-log-type": "0",
+                "x-firebase-locale": "en",
+                "x-ios-bundle-identifier": "AlexisBarreyat.BeReal",
             },
             timeout=15
         )
@@ -140,7 +153,7 @@ class BeFake:
                 session["firebase"]["expires"])
 
             # This is broken, probably due to request signature verification
-            #if pendulum.now().add(minutes=3) >= self.expiration:
+            # if pendulum.now().add(minutes=3) >= self.expiration:
             #    self.refresh_tokens()
 
             if pendulum.now().add(minutes=3) >= self.firebase_expiration:
@@ -163,7 +176,9 @@ class BeFake:
         res = self.client.request(
             method,
             f"{self.api_url}/{endpoint}",
-            headers={"authorization": "Bearer " + self.token},
+            headers={
+                "authorization": "Bearer " + self.token,
+            },
             **kwargs,
         )
         res.raise_for_status()
@@ -322,7 +337,7 @@ class BeFake:
 
     def verify_otp_cloud(self, otp: str) -> None:
         if self.otp_session is None:
-            raise Exception("No open otp session (vonage).")
+            raise Exception("No open otp session (cloud).")
         # Request can only accept plain text JSON=> string
         data = {
             "code": otp,
@@ -398,7 +413,7 @@ class BeFake:
                                    "x-firebase-client": "H4sIAAAAAAAAAKtWykhNLCpJSk0sKVayio7VUSpLLSrOzM9TslIyUqoFAFyivEQfAAAA",
                                    "x-firebase-gmpid": "1:405768487586:android:5c3e788d715d72c2dc8dfb",
                                    "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 13; sdk_gphone64_x86_64 Build/TE1A.220922.010)",
-                               })
+        })
         if not res.is_success:
             raise Exception(res.content)
         res = res.json()
